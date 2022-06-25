@@ -17,11 +17,35 @@ from random_process import GaussianNoise, OrnsteinUhlenbeckProcess
 from memory import Memory
 from util import *
 
+from torch.distributions import Normal
+from torch.distributions.kl import kl_divergence
+
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")  
+
 USE_CUDA = torch.cuda.is_available()
 if USE_CUDA:
     FloatTensor = torch.cuda.FloatTensor
 else:
     FloatTensor = torch.FloatTensor
+
+class Continous():
+    def sample(self, mean, std):
+        distribution    = Normal(mean, std)
+        return distribution.sample().float().to(device)
+        
+    def entropy(self, mean, std):
+        distribution    = Normal(mean, std)    
+        return distribution.entropy().float().to(device)
+      
+    def logprob(self, mean, std, value_data):
+        distribution    = Normal(mean, std)
+        return distribution.log_prob(value_data).float().to(device)
+
+    def kl_divergence(self, mean1, std1, mean2, std2):
+        distribution1   = Normal(mean1, std1)
+        distribution2   = Normal(mean2, std2)
+
+        return kl_divergence(distribution1, distribution2).float().to(device)
 
 
 def evaluate(actor, env, memory=None, n_episodes=1, random=False, noise=None, render=False):
@@ -142,9 +166,16 @@ class Actor(RLNN):
         # Sample replay buffer
         states, _, _, _, _ = memory.sample(batch_size)
 
+        self.std = torch.ones([1, action_dim]).float().to(device)
+        self.distributions = Continous()
+        action_mean = actor(states)
+        best_action_mean = best_actor(states)
+        Best_action_mean = best_action_mean.detach()
+        KL = self.distributions.kl_divergence(Best_action_mean, self.std, action_mean, self.std)
+
         # Compute actor loss
         if args.use_td3:
-            actor_loss = -critic(states, self(states))[0].mean() + beta*np.linalg.norm(self.parameters(), best_actor.parameters())/2
+            actor_loss = (-critic(states, self(states))[0] + beta * KL /2).mean()
         else:
             actor_loss = -critic(states, self(states)).mean()
 
@@ -415,6 +446,7 @@ if __name__ == "__main__":
         critic_t.cuda()
         actor.cuda()
         actor_t.cuda()
+        best_actor.cuda()
 
     # CEM
     es = sepCEM(actor.get_size(), mu_init=actor.get_params(), sigma_init=args.sigma_init, damp=args.damp, damp_limit=args.damp_limit,
