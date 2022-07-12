@@ -535,14 +535,14 @@ if __name__ == "__main__":
         
         # find best actor and adapt beta
         best_actor_num = np.argmax(fitness)
-        if total_steps % 1000 == 0 and total_steps > 1:
+        if total_steps > 1:
             mean_best = []
             mean_old = []
             for i in range(args.pop_size):
                 if i == best_actor_num:
                     continue
                 mean_best.append(np.mean(es_params[i]))
-                mean_best.append(np.mean(old_es_params[i]))
+                mean_old.append(np.mean(old_es_params[i]))
             
             if np.mean(mean_best) > max(target_ratio * np.mean(mean_old), target_range) * 1.5:
                 if beta < 1000:
