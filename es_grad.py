@@ -172,7 +172,7 @@ class Actor(RLNN):
         best_action_mean = best_actor(states)
         Best_action_mean = best_action_mean.detach()
         KL = self.distributions.kl_divergence(Best_action_mean, self.std, action_mean, self.std)
-
+        Norm2 = torch.mean(0.5 * torch.square(Best_action_mean - action_mean), -1)
         # Compute actor loss
         if args.use_td3:
             actor_loss = (-critic(states, self(states))[0] + beta * KL /2).mean()
