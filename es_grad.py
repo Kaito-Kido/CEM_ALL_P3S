@@ -172,7 +172,7 @@ class Actor(RLNN):
         best_action_mean = best_actor(states)
         Best_action_mean = best_action_mean.detach()
         KL = self.distributions.kl_divergence(Best_action_mean, self.std, action_mean, self.std)
-        Norm2 = torch.mean(0.5 * torch.square(Best_action_mean - action_mean), -1)
+
         # Compute actor loss
         if args.use_td3:
             actor_loss = (-critic(states, self(states))[0] + beta * KL /2).mean()
@@ -434,6 +434,7 @@ if __name__ == "__main__":
     actor_t = Actor(state_dim, action_dim, max_action, args)
     actor_t.load_state_dict(actor.state_dict())
     best_actor = Actor(state_dim, action_dim, max_action, args)
+    old_actor = Actor(state_dim, action_dim, max_action, args)
     # action noise
     if not args.ou_noise:
         a_noise = GaussianNoise(action_dim, sigma=args.gauss_sigma)
@@ -447,6 +448,7 @@ if __name__ == "__main__":
         actor.cuda()
         actor_t.cuda()
         best_actor.cuda()
+        old_actor.cuda()
 
     # CEM
     es = sepCEM(actor.get_size(), mu_init=actor.get_params(), sigma_init=args.sigma_init, damp=args.damp, damp_limit=args.damp_limit,
@@ -461,13 +463,13 @@ if __name__ == "__main__":
                                "average_score_rl", "average_score_ea", "best_score"])
     beta = 0.5
     best_actor_num = 0
-    target_ratio = 2
-    target_range = 0.02
+    target_ratio = 1.5
+    target_range = 0.2
     while total_steps < args.max_steps:
         fitness = []
         fitness_ = []
         es_params = es.ask(args.pop_size)
-        old_es_params = es_params
+        old_es_params = es_params.copy()
 
         # udpate the rl actors and the critic
         if total_steps > args.start_steps:
@@ -476,7 +478,7 @@ if __name__ == "__main__":
 
                 # set params
                 actor.set_params(es_params[i])
-                actor_t.set_params(es_params[i])
+                actor_t.set_params(es_params[i])              
                 actor.optimizer = torch.optim.Adam(
                     actor.parameters(), lr=args.actor_lr)
 
@@ -498,7 +500,7 @@ if __name__ == "__main__":
                 actor_t.set_params(es_params[i])
                 actor.optimizer = torch.optim.Adam(
                     actor.parameters(), lr=args.actor_lr)
-                best_actor.set_params(es_params[best_actor_num])
+                best_actor.set_params(best_actor_param)
 
                 # critic update
                 for _ in tqdm(range(actor_steps // args.n_grad)):
@@ -533,25 +535,52 @@ if __name__ == "__main__":
             # print scores
             prLightPurple('Actor fitness:{}'.format(f))
         
-        # find best actor and adapt beta
+        # find best actor
         best_actor_num = np.argmax(fitness)
-        if total_steps > 1:
-            mean_best = []
-            mean_old = []
-            for i in range(args.pop_size):
-                if i == best_actor_num:
-                    continue
-                mean_best.append(np.mean(es_params[i]))
-                mean_old.append(np.mean(old_es_params[i]))
+        print("best_actor_num", best_actor_num)
+        best_actor_param = es_params[best_actor_num].copy()
+        # adapt beta
+        # if total_steps > 1:
+        #     mean_best = []
+        #     mean_old = []
+        #     loss = nn.MSELoss()
+        #     for i in range(args.n_grad, args.pop_size):
+        #         if i == best_actor_num:
+        #             continue
+        #         actor.set_params(es_params[i])
+        #         best_actor.set_params(es_params[best_actor_num])
+        #         states, _, _, _, _ = memory.sample(args.batch_size)
+        #         action_mean = actor(states)
+        #         Action_mean = action_mean.detach()
+        #         best_action_mean = best_actor(states)
+        #         Best_action_mean = best_action_mean.detach()
+        #         Norm2 = loss(Best_action_mean, Action_mean)
+        #         mean_best.append(Norm2.detach().numpy())
             
-            if np.mean(mean_best) > max(target_ratio * np.mean(mean_old), target_range) * 1.5:
-                if beta < 1000:
-                    beta = beta * 2
-            if np.mean(mean_best) < max(target_ratio * np.mean(mean_old), target_range) * 1.5:
-                if beta > 1/1000:
-                    beta = beta / 2
+        #     for i in range(args.n_grad, args.pop_size):
+        #         if i == best_actor_num:
+        #             continue
+        #         old_actor.set_params(old_es_params[i])
+        #         actor.set_params(es_params[i])
+        #         states, _, _, _, _ = memory.sample(args.batch_size)
+        #         action_mean = actor(states)
+        #         old_action_mean = old_actor(states)
+        #         Norm2 = loss(old_action_mean, action_mean)
+        #         mean_old.append(Norm2.detach().numpy())
+        #     print("done")
+        #     print(mean_best)
+        #     print(mean_old)
+        #     print(np.mean(mean_best))
+        #     print(np.mean(mean_old))
+        #     print(max(target_ratio * np.mean(mean_old), target_range))
+        #     if np.mean(mean_best) > max(target_ratio * np.mean(mean_old), target_range) * 3:
+        #         if beta < 1000:
+        #             beta = beta * 2
+        #     if np.mean(mean_best) < max(target_ratio * np.mean(mean_old), target_range) / 3:
+        #         if beta > 1/1000:
+        #             beta = beta / 2
 
-            print("Next beta : ", beta)
+        #     print("Next beta : ", beta)
 
         # update es
         es.tell(es_params, fitness)
