@@ -44,7 +44,8 @@ class Continous():
     def kl_divergence(self, mean1, std1, mean2, std2):
         distribution1   = Normal(mean1, std1)
         distribution2   = Normal(mean2, std2)
-
+        print(mean1.shape)
+        print(std1.shape)
         return kl_divergence(distribution1, distribution2).float().to(device)
 
 
@@ -489,7 +490,7 @@ if __name__ == "__main__":
                 # actor update
                 for _ in tqdm(range(actor_steps)):
                     actor.update_p3s(memory, args.batch_size,
-                                 critic, actor_t)
+                                 critic, actor_t, best_actor, beta)
 
                 # get the params back in the population
                 es_params[i] = actor.get_params()
