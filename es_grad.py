@@ -588,6 +588,46 @@ if __name__ == "__main__":
 
         #     print("Next beta : ", beta)
 
+        if total_steps > 1:
+            d_change = []
+            d_spread = []
+            for i in range(args.pop_size):
+                if i == best_actor_num: 
+                    continue
+                old_actor.set_params(old_es_params[i])
+                actor.set_params(es_params[i])
+                best_actor.set_params(es_params[best_actor_num])
+
+                mu = actor.get_params()
+                old_mu= old_actor.get_params()
+                best_mu = best_actor.get_params()
+                distributions = Continous()
+                std = mu.shape
+                std = torch.ones([std[0]]).float().to(device)
+
+                spread = distributions.kl_divergence(torch.from_numpy(mu), std, torch.from_numpy(best_mu), std)
+                change = distributions.kl_divergence(torch.from_numpy(mu), std, torch.from_numpy(old_mu), std)
+
+                d_change.append(change.numpy())
+                d_spread.append(spread.numpy())
+
+            if np.mean(d_spread) > max(target_ratio * np.mean(d_change), target_range) * 1.5:
+                if beta < 1000:
+                    beta = beta * 2
+            if np.mean(d_spread) < max(target_ratio * np.mean(d_change), target_range) / 1.5:
+                if beta > 1/1000:
+                    beta = beta / 2
+
+            print("Next beta : ", beta)
+                
+
+
+
+
+
+
+
+
         # update es
         es.tell(es_params, fitness)
 
