@@ -44,8 +44,6 @@ class Continous():
     def kl_divergence(self, mean1, std1, mean2, std2):
         distribution1   = Normal(mean1, std1)
         distribution2   = Normal(mean2, std2)
-        print(mean1.shape)
-        print(std1.shape)
         return kl_divergence(distribution1, distribution2).float().to(device)
 
 
@@ -167,12 +165,19 @@ class Actor(RLNN):
         # Sample replay buffer
         states, _, _, _, _ = memory.sample(batch_size)
 
-        self.std = torch.ones([1, action_dim]).float().to(device)
         self.distributions = Continous()
         action_mean = actor(states)
         best_action_mean = best_actor(states)
         Best_action_mean = best_action_mean.detach()
-        KL = self.distributions.kl_divergence(Best_action_mean, self.std, action_mean, self.std)
+        mu_actor = actor_t.get_params()
+        mu_best_actor = best_actor.get_params()
+
+        std = mu_actor.shape
+        self.std = torch.ones([std[0]]).float().to(device)
+
+
+
+        KL = self.distributions.kl_divergence(torch.from_numpy(mu_actor), self.std, torch.from_numpy(mu_best_actor), self.std)
 
         # Compute actor loss
         if args.use_td3:
