@@ -44,6 +44,7 @@ class Continous():
     def kl_divergence(self, mean1, std1, mean2, std2):
         distribution1   = Normal(mean1, std1)
         distribution2   = Normal(mean2, std2)
+
         return kl_divergence(distribution1, distribution2).float().to(device)
 
 
@@ -160,24 +161,17 @@ class Actor(RLNN):
             target_param.data.copy_(
                 self.tau * param.data + (1 - self.tau) * target_param.data)
 
-    def update_p3s(self, memory, batch_size, critic, actor_t, best_actor, beta):
+    def update_p3s(self, memory, batch_size, critic, actor_t, mu_actor, beta):
 
         # Sample replay buffer
         states, _, _, _, _ = memory.sample(batch_size)
 
+        self.std = torch.ones([1, action_dim]).float().to(device)
         self.distributions = Continous()
         action_mean = actor(states)
-        best_action_mean = best_actor(states)
+        best_action_mean = mu_actor(states)
         Best_action_mean = best_action_mean.detach()
-        mu_actor = actor_t.get_params()
-        mu_best_actor = best_actor.get_params()
-
-        std = mu_actor.shape
-        self.std = torch.ones([std[0]]).float().to(device)
-
-
-
-        KL = self.distributions.kl_divergence(torch.from_numpy(mu_actor), self.std, torch.from_numpy(mu_best_actor), self.std)
+        KL = self.distributions.kl_divergence(Best_action_mean, self.std, action_mean, self.std)
 
         # Compute actor loss
         if args.use_td3:
@@ -439,8 +433,8 @@ if __name__ == "__main__":
     actor = Actor(state_dim, action_dim, max_action, args)
     actor_t = Actor(state_dim, action_dim, max_action, args)
     actor_t.load_state_dict(actor.state_dict())
-    best_actor = Actor(state_dim, action_dim, max_action, args)
-    old_actor = Actor(state_dim, action_dim, max_action, args)
+    mu_actor = Actor(state_dim, action_dim, max_action, args)
+    old_mu_actor = Actor(state_dim, action_dim, max_action, args)
     # action noise
     if not args.ou_noise:
         a_noise = GaussianNoise(action_dim, sigma=args.gauss_sigma)
@@ -453,8 +447,8 @@ if __name__ == "__main__":
         critic_t.cuda()
         actor.cuda()
         actor_t.cuda()
-        best_actor.cuda()
-        old_actor.cuda()
+        # best_actor.cuda()
+        old_mu_actor.cuda()
 
     # CEM
     es = sepCEM(actor.get_size(), mu_init=actor.get_params(), sigma_init=args.sigma_init, damp=args.damp, damp_limit=args.damp_limit,
@@ -475,38 +469,38 @@ if __name__ == "__main__":
         fitness = []
         fitness_ = []
         es_params = es.ask(args.pop_size)
-        old_es_params = es_params.copy()
+        mu_actor.set_params(es.mu)
 
         # udpate the rl actors and the critic
         if total_steps > args.start_steps:
 
-            for i in range(args.n_grad):
+            # for i in range(args.n_grad):
 
-                # set params
-                actor.set_params(es_params[i])
-                actor_t.set_params(es_params[i])              
-                actor.optimizer = torch.optim.Adam(
-                    actor.parameters(), lr=args.actor_lr)
+            #     # set params
+            #     actor.set_params(es_params[i])
+            #     actor_t.set_params(es_params[i])              
+            #     actor.optimizer = torch.optim.Adam(
+            #         actor.parameters(), lr=args.actor_lr)
 
-                # critic update
-                for _ in tqdm(range(actor_steps // args.n_grad)):
-                    critic.update(memory, args.batch_size, actor, critic_t)
+            #     # critic update
+            #     for _ in tqdm(range(actor_steps // args.n_grad)):
+            #         critic.update(memory, args.batch_size, actor, critic_t)
 
-                # actor update
-                for _ in tqdm(range(actor_steps)):
-                    actor.update_p3s(memory, args.batch_size,
-                                 critic, actor_t, best_actor, beta)
+            #     # actor update
+            #     for _ in tqdm(range(actor_steps)):
+            #         actor.update(memory, args.batch_size,
+            #                      critic, actor_t)
 
-                # get the params back in the population
-                es_params[i] = actor.get_params()
+            #     # get the params back in the population
+            #     es_params[i] = actor.get_params()
 
-            for i in range(args.n_grad, args.pop_size):
+            for i in range(args.pop_size):
                 # set params
                 actor.set_params(es_params[i])
                 actor_t.set_params(es_params[i])
                 actor.optimizer = torch.optim.Adam(
                     actor.parameters(), lr=args.actor_lr)
-                best_actor.set_params(best_actor_param)
+                # best_actor.set_params(best_actor_param)
 
                 # critic update
                 for _ in tqdm(range(actor_steps // args.n_grad)):
@@ -515,7 +509,7 @@ if __name__ == "__main__":
                 # actor update
                 for _ in tqdm(range(actor_steps)):
                     actor.update_p3s(memory, args.batch_size,
-                                 critic, actor_t, best_actor, beta)
+                                 critic, actor_t, mu_actor, beta)
 
                 # get the params back in the population
                 es_params[i] = actor.get_params()
@@ -542,9 +536,9 @@ if __name__ == "__main__":
             prLightPurple('Actor fitness:{}'.format(f))
         
         # find best actor
-        best_actor_num = np.argmax(fitness)
-        print("best_actor_num", best_actor_num)
-        best_actor_param = es_params[best_actor_num].copy()
+        # best_actor_num = np.argmax(fitness)
+        # print("best_actor_num", best_actor_num)
+        # best_actor_param = es_params[best_actor_num].copy()
         # adapt beta
         # if total_steps > 1:
         #     mean_best = []
@@ -589,45 +583,37 @@ if __name__ == "__main__":
         #     print("Next beta : ", beta)
 
         if total_steps > 1:
-            d_change = []
-            d_spread = []
+            current_mu = []
+            old_mu = []
             for i in range(args.pop_size):
-                if i == best_actor_num: 
-                    continue
-                old_actor.set_params(old_es_params[i])
                 actor.set_params(es_params[i])
-                best_actor.set_params(es_params[best_actor_num])
+                states, _, _, _, _ = memory.sample(args.batch_size) 
+                action = actor(states)
+                old_mu_action = old_mu_actor(states)
+                mu_action = mu_actor(states) 
 
-                mu = actor.get_params()
-                old_mu= old_actor.get_params()
-                best_mu = best_actor.get_params()
+
+                std = torch.ones([1, action_dim]).float().to(device)
                 distributions = Continous()
-                std = mu.shape
-                std = torch.ones([std[0]]).float().to(device)
 
-                spread = distributions.kl_divergence(torch.from_numpy(mu), std, torch.from_numpy(best_mu), std)
-                change = distributions.kl_divergence(torch.from_numpy(mu), std, torch.from_numpy(old_mu), std)
+                kl_current = distributions.kl_divergence(mu_action, std, action, std)
+                kl_old = distributions.kl_divergence(old_mu_action, std, action, std)
 
-                d_change.append(change.numpy())
-                d_spread.append(spread.numpy())
-
-            if np.mean(d_spread) > max(target_ratio * np.mean(d_change), target_range) * 1.5:
+                current_mu.append(kl_current.detach().numpy())
+                old_mu.append(kl_old.detach().numpy())
+            
+            if np.mean(current_mu) > max(target_ratio * np.mean(old_mu), target_range) * 1.5:
                 if beta < 1000:
                     beta = beta * 2
-            if np.mean(d_spread) < max(target_ratio * np.mean(d_change), target_range) / 1.5:
+            if np.mean(current_mu) < max(target_ratio * np.mean(old_mu), target_range) / 1.5:
                 if beta > 1/1000:
                     beta = beta / 2
 
             print("Next beta : ", beta)
+        
                 
 
-
-
-
-
-
-
-
+        old_mu_actor.set_params(es.mu)
         # update es
         es.tell(es_params, fitness)
 
