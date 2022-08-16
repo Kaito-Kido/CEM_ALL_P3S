@@ -488,7 +488,7 @@ if __name__ == "__main__":
 
                 # actor update
                 for _ in tqdm(range(actor_steps)):
-                    actor.update(memory, args.batch_size,
+                    actor.update_p3s(memory, args.batch_size,
                                  critic, actor_t)
 
                 # get the params back in the population
