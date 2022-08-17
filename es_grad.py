@@ -447,7 +447,7 @@ if __name__ == "__main__":
         critic_t.cuda()
         actor.cuda()
         actor_t.cuda()
-        # best_actor.cuda()
+        mu_actor.cuda()
         old_mu_actor.cuda()
 
     # CEM
@@ -599,8 +599,8 @@ if __name__ == "__main__":
                 kl_current = distributions.kl_divergence(mu_action, std, action, std)
                 kl_old = distributions.kl_divergence(old_mu_action, std, action, std)
 
-                current_mu.append(kl_current.detach().numpy())
-                old_mu.append(kl_old.detach().numpy())
+                current_mu.append(kl_current.detach().cpu().numpy())
+                old_mu.append(kl_old.detach().cpu().numpy())
             
             if np.mean(current_mu) > max(target_ratio * np.mean(old_mu), target_range) * 1.5:
                 if beta < 1000:
