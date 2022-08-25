@@ -168,14 +168,14 @@ class Actor(RLNN):
 
         self.std = torch.ones([1, action_dim]).float().to(device)
         self.distributions = Continous()
-        action_mean = actor(states)
+        action_mean = self(states)
         best_action_mean = mu_actor(states)
         Best_action_mean = best_action_mean.detach()
         KL = self.distributions.kl_divergence(Best_action_mean, self.std, action_mean, self.std)
 
         # Compute actor loss
         if args.use_td3:
-            actor_loss = (-critic(states, self(states))[0] + beta * KL /2).mean()
+            actor_loss = (-critic(states, self(states))[0] + 0.5 * KL).mean()
         else:
             actor_loss = -critic(states, self(states)).mean()
 
@@ -462,7 +462,7 @@ if __name__ == "__main__":
     df = pd.DataFrame(columns=["total_steps", "average_score",
                                "average_score_rl", "average_score_ea", "best_score"])
     beta = 0.5
-    best_actor_num = 0
+    # best_actor_num = 0
     target_ratio = 1.5
     target_range = 0.2
     while total_steps < args.max_steps:
@@ -535,85 +535,39 @@ if __name__ == "__main__":
             # print scores
             prLightPurple('Actor fitness:{}'.format(f))
         
-        # find best actor
-        # best_actor_num = np.argmax(fitness)
-        # print("best_actor_num", best_actor_num)
-        # best_actor_param = es_params[best_actor_num].copy()
-        # adapt beta
+
         # if total_steps > 1:
-        #     mean_best = []
-        #     mean_old = []
-        #     loss = nn.MSELoss()
-        #     for i in range(args.n_grad, args.pop_size):
-        #         if i == best_actor_num:
-        #             continue
+        #     current_mu = []
+        #     old_mu = []
+        #     for i in range(args.pop_size):
         #         actor.set_params(es_params[i])
-        #         best_actor.set_params(es_params[best_actor_num])
-        #         states, _, _, _, _ = memory.sample(args.batch_size)
-        #         action_mean = actor(states)
-        #         Action_mean = action_mean.detach()
-        #         best_action_mean = best_actor(states)
-        #         Best_action_mean = best_action_mean.detach()
-        #         Norm2 = loss(Best_action_mean, Action_mean)
-        #         mean_best.append(Norm2.detach().numpy())
+        #         states, _, _, _, _ = memory.sample(args.batch_size) 
+        #         action = actor(states)
+        #         old_mu_action = old_mu_actor(states)
+        #         mu_action = mu_actor(states) 
+
+
+        #         std = torch.ones([1, action_dim]).float().to(device)
+        #         distributions = Continous()
+
+        #         kl_current = distributions.kl_divergence(mu_action, std, action, std)
+        #         kl_old = distributions.kl_divergence(old_mu_action, std, action, std)
+
+        #         current_mu.append(kl_current.detach().cpu().numpy())
+        #         old_mu.append(kl_old.detach().cpu().numpy())
             
-        #     for i in range(args.n_grad, args.pop_size):
-        #         if i == best_actor_num:
-        #             continue
-        #         old_actor.set_params(old_es_params[i])
-        #         actor.set_params(es_params[i])
-        #         states, _, _, _, _ = memory.sample(args.batch_size)
-        #         action_mean = actor(states)
-        #         old_action_mean = old_actor(states)
-        #         Norm2 = loss(old_action_mean, action_mean)
-        #         mean_old.append(Norm2.detach().numpy())
-        #     print("done")
-        #     print(mean_best)
-        #     print(mean_old)
-        #     print(np.mean(mean_best))
-        #     print(np.mean(mean_old))
-        #     print(max(target_ratio * np.mean(mean_old), target_range))
-        #     if np.mean(mean_best) > max(target_ratio * np.mean(mean_old), target_range) * 3:
+        #     if np.mean(current_mu) > max(target_ratio * np.mean(old_mu), target_range) * 1.5:
         #         if beta < 1000:
         #             beta = beta * 2
-        #     if np.mean(mean_best) < max(target_ratio * np.mean(mean_old), target_range) / 3:
+        #     if np.mean(current_mu) < max(target_ratio * np.mean(old_mu), target_range) / 1.5:
         #         if beta > 1/1000:
         #             beta = beta / 2
 
         #     print("Next beta : ", beta)
-
-        if total_steps > 1:
-            current_mu = []
-            old_mu = []
-            for i in range(args.pop_size):
-                actor.set_params(es_params[i])
-                states, _, _, _, _ = memory.sample(args.batch_size) 
-                action = actor(states)
-                old_mu_action = old_mu_actor(states)
-                mu_action = mu_actor(states) 
-
-
-                std = torch.ones([1, action_dim]).float().to(device)
-                distributions = Continous()
-
-                kl_current = distributions.kl_divergence(mu_action, std, action, std)
-                kl_old = distributions.kl_divergence(old_mu_action, std, action, std)
-
-                current_mu.append(kl_current.detach().cpu().numpy())
-                old_mu.append(kl_old.detach().cpu().numpy())
-            
-            if np.mean(current_mu) > max(target_ratio * np.mean(old_mu), target_range) * 1.5:
-                if beta < 1000:
-                    beta = beta * 2
-            if np.mean(current_mu) < max(target_ratio * np.mean(old_mu), target_range) / 1.5:
-                if beta > 1/1000:
-                    beta = beta / 2
-
-            print("Next beta : ", beta)
         
                 
 
-        old_mu_actor.set_params(es.mu)
+        # old_mu_actor.set_params(es.mu)
         # update es
         es.tell(es_params, fitness)
 
